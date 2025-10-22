@@ -1,0 +1,105 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+.pnpm-debug.log
+
+# Build/artifacts
+dist/
+build/
+out/
+coverage/
+.tmp/
+.cache/
+*.tgz
+
+# Environment / secrets
+.env
+.env.*.local
+.env.local
+.env.production
+.env.test
+.env.*.backup
+secrets.yml
+*.pem
+*.key
+*.crt
+
+# Logs
+logs/
+*.log
+debug.log
+*.log.*
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+
+# Editors/IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# Python (if any)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.pyre/
+.mypy_cache/
+venv/
+.venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.egg-info/
+
+# Go (if any)
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Java (if any)
+*.class
+*.jar
+*.war
+*.ear
+target/
+*.iml
+
+# Docker
+docker-compose.override.yml
+*.env.docker
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Misc
+*.local
+*.tmp
+*.swp
+*.swo
+*.bak
+*.backup
+
+# Ensure you still track files you want in repo (uncomment if needed)
+# !.env.example
+# !README.md
