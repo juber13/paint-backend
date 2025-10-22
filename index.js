@@ -4,7 +4,7 @@ import dotenv from 'dotenv'
 import bodyParser from 'body-parser'
 import mongoose from 'mongoose'
 import nodemailer from 'nodemailer'
-import Contact from './contact.js'
+import Contact from './src/contact.js'
 
 // Load environment variables
 dotenv.config()
