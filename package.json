@@ -1,12 +1,14 @@
 {
   "name": "paint-contractor-backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "./index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "build": "echo 'No build step required for Node.js backend'"
+    "build": "echo 'No build step required for Node.js backend'",
+    "postinstall": "echo 'Dependencies installed successfully'",
+    "render-start": "node index.js"
   },
   "keywords": ["paint", "contractor", "api", "backend"],
   "author": "Apna Contractor",
