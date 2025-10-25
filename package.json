@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "build": "npm run build"
+    "build": "echo 'No build step required for Node.js backend'"
   },
   "keywords": ["paint", "contractor", "api", "backend"],
   "author": "Apna Contractor",
