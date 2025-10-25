@@ -5,12 +5,65 @@ import bodyParser from 'body-parser'
 import mongoose from 'mongoose'
 import nodemailer from 'nodemailer'
 import Contact from './src/contact.js'
+import { v4 as uuidv4 } from 'uuid'
 
 // Load environment variables
 dotenv.config()
 
 const app = express()
 const port = process.env.PORT || 3000
+
+// Enhanced logging utility
+const logger = {
+  info: (message, meta = {}) => {
+    console.log(`[${new Date().toISOString()}] [INFO] ${message}`, meta)
+  },
+  error: (message, error = null, meta = {}) => {
+    console.error(`[${new Date().toISOString()}] [ERROR] ${message}`, error ? error.stack || error : '', meta)
+  },
+  warn: (message, meta = {}) => {
+    console.warn(`[${new Date().toISOString()}] [WARN] ${message}`, meta)
+  },
+  debug: (message, meta = {}) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[${new Date().toISOString()}] [DEBUG] ${message}`, meta)
+    }
+  }
+}
+
+// Request ID middleware for tracking requests
+app.use((req, res, next) => {
+  req.requestId = uuidv4()
+  req.startTime = Date.now()
+  next()
+})
+
+// Request logging middleware
+app.use((req, res, next) => {
+  const { method, url, ip } = req
+  logger.info(`Incoming request`, {
+    requestId: req.requestId,
+    method,
+    url,
+    ip,
+    userAgent: req.get('User-Agent')
+  })
+  
+  // Log response when it finishes
+  res.on('finish', () => {
+    const duration = Date.now() - req.startTime
+    const { statusCode } = res
+    logger.info(`Request completed`, {
+      requestId: req.requestId,
+      method,
+      url,
+      statusCode,
+      duration: `${duration}ms`
+    })
+  })
+  
+  next()
+})
 
 // Middleware
 app.use(cors({
@@ -21,27 +74,46 @@ app.use(bodyParser.json())
 app.use(bodyParser.urlencoded({ extended: true }))
 
 const connectDB = () => {
-  // Check if MONGODB_URI is provided
-  const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/paint-contractor'
-  
-  if (!process.env.MONGODB_URI) {
-    console.log('⚠️  MONGODB_URI not set, using default local MongoDB')
+  try {
+    // Check if MONGODB_URI is provided
+    const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/paint-contractor'
+    
+    if (!process.env.MONGODB_URI) {
+      logger.warn('MONGODB_URI not set, using default local MongoDB', {
+        defaultURI: mongoURI
+      })
+    }
+    
+    logger.info('Attempting to connect to MongoDB', {
+      uri: mongoURI.replace(/\/\/.*@/, '//***:***@') // Hide credentials in logs
+    })
+    
+    // MongoDB connection
+    mongoose.connect(mongoURI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    })
+    .then(() => {
+      logger.info('Successfully connected to MongoDB', {
+        readyState: mongoose.connection.readyState,
+        host: mongoose.connection.host,
+        port: mongoose.connection.port,
+        name: mongoose.connection.name
+      })
+    })
+    .catch((err) => {
+      logger.error('MongoDB connection failed', err, {
+        errorCode: err.code,
+        errorName: err.name,
+        mongoURI: mongoURI.replace(/\/\/.*@/, '//***:***@')
+      })
+      logger.warn('Server will continue with fallback storage')
+    })
+  } catch (error) {
+    logger.error('Database connection setup failed', error)
   }
-  
-  // MongoDB connection
-  mongoose.connect(mongoURI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-  })
-  .then(() => {
-    console.log('✅ Connected to MongoDB')
-  })
-  .catch((err) => {
-    console.log('❌ MongoDB connection error:', err.message)
-    console.log('📝 Server will continue with fallback storage')
-  })
 }
 
 
@@ -58,30 +130,30 @@ const transporter = nodemailer.createTransport({
 })
 
 // Routes
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Apna Contractor API Server', 
-    status: 'running',
-    version: '1.0.0',
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
-  })
-})
-
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
-  })
-})
 
 // Contact form submission endpoint
 app.post('/api/contact', async (req, res) => {
+  const requestId = req.requestId
+  
   try {
+    logger.info('Contact form submission started', {
+      requestId,
+      body: { ...req.body, message: req.body.message ? '[REDACTED]' : undefined }
+    })
+
     const { name, email, phone, service, message } = req.body
 
     // Validate required fields
     if (!name || !email || !service || !message) {
+      logger.warn('Contact form validation failed - missing required fields', {
+        requestId,
+        missingFields: {
+          name: !name,
+          email: !email,
+          service: !service,
+          message: !message
+        }
+      })
       return res.status(400).json({
         success: false,
         message: 'Please fill in all required fields.'
@@ -91,6 +163,10 @@ app.post('/api/contact', async (req, res) => {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
+      logger.warn('Contact form validation failed - invalid email format', {
+        requestId,
+        email
+      })
       return res.status(400).json({
         success: false,
         message: 'Please enter a valid email address.'
@@ -102,6 +178,11 @@ app.post('/api/contact', async (req, res) => {
     try {
       // Check if MongoDB is connected
       if (mongoose.connection.readyState === 1) {
+        logger.debug('Attempting to save contact to MongoDB', {
+          requestId,
+          mongoState: mongoose.connection.readyState
+        })
+        
         savedContact = await Contact.create({
           name,
           email,
@@ -109,12 +190,24 @@ app.post('/api/contact', async (req, res) => {
           service,
           message
         })
-        console.log('✅ Contact saved to MongoDB:', savedContact._id)
+        
+        logger.info('Contact successfully saved to MongoDB', {
+          requestId,
+          contactId: savedContact._id,
+          name,
+          email,
+          service
+        })
       } else {
         throw new Error('MongoDB not connected')
       }
     } catch (dbError) {
-      console.log('⚠️  MongoDB save failed, using fallback storage:', dbError.message)
+      logger.warn('MongoDB save failed, using fallback storage', {
+        requestId,
+        error: dbError.message,
+        mongoState: mongoose.connection.readyState
+      })
+      
       // Fallback to in-memory storage
       savedContact = {
         _id: Date.now().toString(),
@@ -127,7 +220,12 @@ app.post('/api/contact', async (req, res) => {
         status: 'new'
       }
       fallbackContacts.push(savedContact)
-      console.log('✅ Contact saved to fallback storage')
+      
+      logger.info('Contact saved to fallback storage', {
+        requestId,
+        contactId: savedContact._id,
+        fallbackCount: fallbackContacts.length
+      })
     }
     // Send email notification to admin
     // const adminEmail = process.env.ADMIN_EMAIL || 'info@apnacontractors.com'
@@ -174,6 +272,14 @@ app.post('/api/contact', async (req, res) => {
     //   // Don't fail the request if email fails
     // }
 
+    logger.info('Contact form submission completed successfully', {
+      requestId,
+      contactId: savedContact._id,
+      name,
+      email,
+      service
+    })
+
     res.status(200).json({
       success: true,
       message: 'Thank you for your message! We will get back to you within 24 hours.',
@@ -184,7 +290,11 @@ app.post('/api/contact', async (req, res) => {
     })
 
   } catch (error) {
-    console.error('Contact form submission error:', error)
+    logger.error('Contact form submission failed', error, {
+      requestId,
+      body: { ...req.body, message: req.body.message ? '[REDACTED]' : undefined }
+    })
+    
     res.status(500).json({
       success: false,
       message: 'Sorry, there was an error submitting your message. Please try again later.'
@@ -192,51 +302,42 @@ app.post('/api/contact', async (req, res) => {
   }
 })
 
-// Get all contacts (admin endpoint)
-app.get('/api/contacts', async (req, res) => {
-  try {
-    let contacts = []
-    
-    if (mongoose.connection.readyState === 1) {
-      // Try to get from MongoDB
-      try {
-        contacts = await Contact.find().sort({ submittedAt: -1 })
-        console.log('✅ Fetched contacts from MongoDB')
-      } catch (dbError) {
-        console.log('⚠️  MongoDB fetch failed, using fallback storage')
-        contacts = fallbackContacts.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))
-      }
-    } else {
-      // Use fallback storage
-      contacts = fallbackContacts.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))
-      console.log('📝 Using fallback storage for contacts')
-    }
-    
-    res.json({
-      success: true,
-      data: contacts,
-      source: mongoose.connection.readyState === 1 ? 'mongodb' : 'fallback'
-    })
-  } catch (error) {
-    console.error('Error fetching contacts:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching contacts'
-    })
-  }
-})
 
-// Error handling middleware
+// Enhanced error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack)
+  const requestId = req.requestId || 'unknown'
+  
+  logger.error('Unhandled error occurred', err, {
+    requestId,
+    method: req.method,
+    url: req.url,
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    stack: err.stack
+  })
+  
+  // Don't expose internal errors in production
+  const isDevelopment = process.env.NODE_ENV === 'development'
+  
   res.status(500).json({
     success: false,
-    message: 'Something went wrong!'
+    message: 'Something went wrong!',
+    ...(isDevelopment && { 
+      error: err.message,
+      requestId 
+    })
   })
 })
 
 // 404 handler
 app.use('*', (req, res) => {
+  logger.warn('Route not found', {
+    requestId: req.requestId,
+    method: req.method,
+    url: req.url,
+    ip: req.ip
+  })
+  
   res.status(404).json({
     success: false,
     message: 'Route not found'
@@ -244,7 +345,13 @@ app.use('*', (req, res) => {
 })
 
 app.listen(port, () => {
-    console.log(`Server is running on port ${port}`)
+    logger.info('Server started successfully', {
+      port,
+      nodeEnv: process.env.NODE_ENV || 'development',
+      pid: process.pid
+    })
     connectDB();
-    console.log(`API Documentation: http://localhost:${port}`)
+    logger.info('API Documentation available', {
+      url: `http://localhost:${port}`
+    })
 })
